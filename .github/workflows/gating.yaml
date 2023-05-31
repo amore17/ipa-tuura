@@ -20,7 +20,7 @@ jobs:
   build-container:
     name: Build and push the ipa-tuura container
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'freeipa'
+    if: github.repository_owner == 'amore17'
     needs: [pre-commit]
     env:
       IMAGE_REGISTRY_GITHUB: ghcr.io
@@ -85,7 +85,7 @@ jobs:
     name: Pull the ipa-tuura container if PR is not from fork
     runs-on: ubuntu-latest
     if: |
-      github.repository_owner == 'freeipa' &&
+      github.repository_owner == 'amore17' &&
       github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     needs: [build-container]
     env:
@@ -125,3 +125,43 @@ jobs:
         run: |
           podman pull ${{ env.IMAGE_REGISTRY_QUAY }}:${{ env.IMAGE_TAG }}
           podman images
+
+      - name: Setup containers
+        uses: SSSD/sssd-ci-containers/actions/setup@master
+        with:
+          path: sssd-ci-containers
+          tag: latest
+          override: |
+            services:
+              client:
+                image: quay.io/sssd/ci-client:latest
+                shm_size: 4G
+                tmpfs:
+                - /dev/shm
+                volumes:
+                - ../sssd:/sssd:rw
+
+      - name: Test containers
+        run: |
+          sudo podman images
+          sudo podman ps -a
+          sudo sleep 120
+          sudo podman exec ipa /usr/bin/bash -c 'ipactl restart'
+          sudo sleep 30
+          sudo podman exec ipa /usr/bin/bash -c 'echo Secret123 | kinit admin && echo vagrant'
+          sudo podman exec ipa /usr/bin/bash -c 'klist'
+          sudo podman exec client /usr/bin/bash -c 'cat /etc/krb5.conf && echo vagrant'
+          sudo podman exec client /usr/bin/bash -c 'tail /var/log/ipaclient-install.log && echo vagrant'
+          sudo podman exec client /usr/bin/bash -c 'echo Secret123 | kinit admin@IPA.TEST && echo vagrant'
+
+      - uses: actions/checkout@v3
+
+      - name: Start containers
+        run: docker-compose -f ./docker-compose.yml up -d
+
+      - name: Sudo state of container services
+        run: sudo podman ps -a
+
+      - name: Stop containers
+        if: always()
+        run: docker-compose -f "./docker-compose.yml" down
