@@ -1,0 +1,80 @@
+version: "3"
+services:
+  ipa:
+    image: quay.io/sssd/ci-ipa:latest
+    container_name: ipa
+    hostname: master.ipa.test
+    dns: 172.16.100.2
+    volumes:
+      - ./shared:/shared:rw
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - AUDIT_WRITE
+      - AUDIT_CONTROL
+      - SYS_CHROOT
+      - NET_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - label=disable
+      - seccomp=unconfined
+    networks:
+      sssd:
+        ipv4_address: 172.16.100.10
+    depends_on:
+      dns:
+        condition: service_completed_successfully
+        restart: true
+  ipa-tuura:
+    image: "${IMAGE_REGISTRY_GH}"
+    container_name: bridge
+    hostname: bridge.ipa.test
+    command: python3 manage.py runserver 0.0.0.0:8000
+    networks:
+      sssd:
+        ipv4_address: 172.16.100.100
+    ports:
+      - 8005:8000
+      - 3501:3500
+      - 4701:81
+      - 4430:443
+    depends_on:
+      ipa:
+        condition: service_completed_successfully
+        restart: true
+  keycloak:
+    image: quay.io/ftrivino/keycloak-devel
+    container_name: keycloak
+    hostname: master.keycloak.test
+    dns: 172.16.100.2
+    entrypoint: /opt/keycloak/bin/kc.sh start
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - AUDIT_WRITE
+      - AUDIT_CONTROL
+      - NET_ADMIN
+      - SYS_CHROOT
+    security_opt:
+      - apparmor=unconfined
+      - label=disable
+      - seccomp=unconfined
+    networks:
+      sssd:
+        ipv4_address: 172.16.100.70
+    ports:
+      - 8443:8443
+    depends_on:
+      ipa:
+        condition: service_completed_successfully
+        restart: true
+networks:
+  sssd:
+    name: sssd-ci
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.100.0/24
+          gateway: 172.16.100.1
+      options:
+        driver: host-local
