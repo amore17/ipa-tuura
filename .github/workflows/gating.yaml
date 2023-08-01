@@ -12,15 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
       - uses: pre-commit/action@v3.0.0
 
   build-container:
     name: Build and push the ipa-tuura container
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'freeipa'
+    if: github.repository_owner == 'amore17'
     needs: [pre-commit]
     env:
       IMAGE_REGISTRY_GITHUB: ghcr.io
@@ -66,7 +63,6 @@ jobs:
           containerfiles: |
             ./Dockerfile.test
 # yamllint enable rule:line-length
-
       - name: Push to Repositories if PR is not from fork
         id: push-to-repo
         uses: redhat-actions/push-to-registry@v2
@@ -85,7 +81,7 @@ jobs:
     name: Pull the ipa-tuura container if PR is not from fork
     runs-on: ubuntu-latest
     if: |
-      github.repository_owner == 'freeipa' &&
+      github.repository_owner == 'amore17' &&
       github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     needs: [build-container]
     env:
@@ -94,6 +90,9 @@ jobs:
       IMAGE_TAG: ${{ github.event.number || github.ref_name  }}  # use PR number else ref_name -> branch name
 
     steps:
+      - name: Install podman-compose
+        run: sudo pip3 install podman-compose
+
       - name: Set the ghcr.io image name derived from repository name (PR from repo)
         run: |
           echo "IMAGE_REGISTRY_GITHUB=${IMAGE_REGISTRY_GITHUB}/${IMAGE,,}" >> ${GITHUB_ENV}
@@ -125,3 +124,34 @@ jobs:
         run: |
           podman pull ${{ env.IMAGE_REGISTRY_QUAY }}:${{ env.IMAGE_TAG }}
           podman images
+          echo "IMAGE_REGISTRY_GH=${{ env.IMAGE_REGISTRY_QUAY }}:${{ env.IMAGE_TAG }}" >> .env
+
+      - uses: actions/checkout@v3
+
+      - name: Set image name in .env file
+        run: |
+          echo "IMAGE_REGISTRY_GH=${{ env.IMAGE_REGISTRY_GITHUB }}:${{ env.IMAGE_TAG }}" >> .env
+          cat .env
+
+      - name: Start containers
+        run: sudo podman-compose -f ./docker-compose.yml up -d
+
+      - name: Sudo state of container services
+        run: sudo podman ps -a
+
+      - name: state of container services
+        run: podman ps -a
+
+      - name: Test containers
+        run: |
+          sudo podman images
+          sudo podman ps -a
+          sudo sleep 120
+          sudo podman exec ipa /usr/bin/bash -c 'ipactl restart'
+          sudo podman exec ipa /usr/bin/bash -c 'ipactl status'
+          sudo podman exec ipa /usr/bin/bash -c 'echo Secret123 | kinit admin && echo vagrant'
+          sudo podman exec ipa /usr/bin/bash -c 'klist'
+
+      - name: Stop containers
+        if: always()
+        run: podman-compose -f "./docker-compose.yml" down

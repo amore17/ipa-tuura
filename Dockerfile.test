@@ -31,4 +31,7 @@ RUN dnf -y update && dnf -y install \
 COPY . ipa-tuura
 WORKDIR /ipa-tuura
 RUN pip install -r src/install/requirements.txt
+RUN ln -s /etc/systemd/system/ipa-tuura.service /etc/systemd/system/multi-user.target.wants/ipa-tuura.service
+RUN ls -Fal /etc/systemd/system/multi-user.target.wants/*
 RUN python3 src/ipa-tuura/manage.py test
+CMD ["/usr/sbin/init"]
